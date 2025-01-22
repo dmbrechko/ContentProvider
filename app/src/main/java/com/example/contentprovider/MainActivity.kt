@@ -131,9 +131,10 @@ class MainActivity : BaseActivity() {
                         list
                     } catch (e: Exception) {
                         emptyList()
+                    } finally {
+                        cursor.close()
                     }
                 } ?: emptyList()
-                cursor?.close()
                 result
             }
             contactsAdapter.submitList(contacts)

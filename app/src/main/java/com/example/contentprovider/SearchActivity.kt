@@ -75,9 +75,10 @@ class SearchActivity : BaseActivity() {
                         list
                     } catch (e: Exception) {
                         emptyList()
+                    } finally {
+                        cursor.close()
                     }
                 } ?: emptyList()
-                cursor?.close()
                 result
             }.filter { it.name.contains(str) }
             contactsAdapter.submitList(contacts)
