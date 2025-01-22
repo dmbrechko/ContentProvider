@@ -5,4 +5,10 @@
     <string name="enter_message">Enter message</string>
     <string name="send">Send</string>
     <string name="error">Error</string>
+    <string name="enter_name">Enter name</string>
+    <string name="add_contact">Add contact</string>
+    <string name="enter_phone">Enter phone</string>
+    <string name="exit">Exit</string>
+    <string name="search">Search</string>
+    <string name="search_contact">Search contact</string>
 </resources>

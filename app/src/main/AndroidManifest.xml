@@ -6,11 +6,11 @@
         android:name="android.hardware.telephony"
         android:required="false" />
 
-    <uses-permission android:name="android.permission.READ_CONTACTS"/>
-    <uses-permission android:name="android.permission.CALL_PHONE"/>
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.SEND_SMS" />
-
 
     <application
         android:allowBackup="true"
@@ -22,6 +22,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.ContentProvider"
         tools:targetApi="31">
+        <activity
+            android:name=".SearchActivity"
+            android:exported="false" />
         <activity
             android:name=".MessageActivity"
             android:exported="false" />

@@ -1,55 +1,31 @@
 package com.example.contentprovider
 
 import android.Manifest
+import android.content.ContentProviderOperation
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
 import android.provider.ContactsContract
-import android.view.LayoutInflater
+import android.provider.ContactsContract.CommonDataKinds.Phone
+import android.provider.ContactsContract.CommonDataKinds.StructuredName
+import android.provider.ContactsContract.RawContacts
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
-import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.ListAdapter
-import androidx.recyclerview.widget.RecyclerView.ViewHolder
 import com.example.contentprovider.databinding.ActivityMainBinding
-import com.example.contentprovider.databinding.ListItemBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : BaseActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var contactsAdapter: ContactsAdapter
-    private lateinit var actionOnPermissionGranted: () -> Unit
-    private lateinit var pickedContact: Contact
-    private val requestPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
-            if (isGranted) {
-                actionOnPermissionGranted()
-            } else {
-                Toast.makeText(this, "Permission was denied", Toast.LENGTH_SHORT).show()
-            }
-        }
 
-    private val requestMultiplePermissionsLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { isGrantedMap: Map<String, Boolean> ->
-            val isGranted = isGrantedMap.values.fold(true) { acc, res -> acc && res }
-            if (isGranted) {
-                actionOnPermissionGranted()
-            } else {
-                Toast.makeText(this, "Some permissions were denied", Toast.LENGTH_SHORT).show()
-            }
-        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,47 +37,30 @@ class MainActivity : AppCompatActivity() {
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
             insets
         }
-        val actions = object : ContactsAdapter.ContactActions {
-            override fun call(contact: Contact) {
-                pickedContact = contact
-                if (isPermissionGranted(Manifest.permission.CALL_PHONE)) {
-                    makePhoneCall()
-                } else {
-                    actionOnPermissionGranted = this@MainActivity::makePhoneCall
-                    requestPermissionLauncher.launch(Manifest.permission.CALL_PHONE)
-                }
 
-            }
-
-            override fun sms(contact: Contact) {
-                pickedContact = contact
-                if (isPermissionGranted(Manifest.permission.READ_PHONE_STATE) &&
-                    isPermissionGranted(Manifest.permission.SEND_SMS)) {
-                    sendMessage()
-                } else {
-                    actionOnPermissionGranted = this@MainActivity::sendMessage
-                    requestMultiplePermissionsLauncher.launch(
-                        arrayOf(
-                            Manifest.permission.READ_PHONE_STATE,
-                            Manifest.permission.SEND_SMS
-                        )
-                    )
-                }
-            }
-        }
         contactsAdapter = ContactsAdapter(actions)
         binding.apply {
+            setSupportActionBar(toolbar)
             listRV.layoutManager = LinearLayoutManager(this@MainActivity)
             listRV.adapter = contactsAdapter
+            addBTN.setOnClickListener {
+                if (nameET.text.isBlank() || phoneET.text.isBlank()) {
+                    Toast.makeText(this@MainActivity, "Fill all fields", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                pickedContact = Contact(nameET.text.toString(), phoneET.text.toString())
+                if (isPermissionGranted(Manifest.permission.WRITE_CONTACTS)) {
+                    saveContact()
+                } else {
+                    actionOnPermissionGranted = this@MainActivity::saveContact
+                    requestPermissionLauncher.launch(Manifest.permission.WRITE_CONTACTS)
+                }
+            }
         }
     }
 
     override fun onStart() {
         super.onStart()
-        binding.apply {
-            listRV.visibility = View.GONE
-            progressCPI.visibility = View.VISIBLE
-        }
         if (isPermissionGranted(Manifest.permission.READ_CONTACTS)) {
             loadContacts()
         } else {
@@ -111,112 +70,100 @@ class MainActivity : AppCompatActivity() {
 
     }
 
-    fun loadContacts(){
+    private fun saveContact() {
+        val operations = ArrayList<ContentProviderOperation>()
+        operations.add(
+            ContentProviderOperation.newInsert(RawContacts.CONTENT_URI)
+                .withValue(RawContacts.ACCOUNT_TYPE, null)
+                .withValue(RawContacts.ACCOUNT_NAME, null)
+                .build()
+        )
+        operations.add(
+            ContentProviderOperation.newInsert(ContactsContract.Data.CONTENT_URI)
+                .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, 0)
+                .withValue(ContactsContract.Data.MIMETYPE, StructuredName.CONTENT_ITEM_TYPE)
+                .withValue(StructuredName.DISPLAY_NAME, pickedContact.name)
+                .build()
+        )
+        operations.add(
+            ContentProviderOperation.newInsert(ContactsContract.Data.CONTENT_URI)
+                .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, 0)
+                .withValue(ContactsContract.Data.MIMETYPE, Phone.CONTENT_ITEM_TYPE)
+                .withValue(Phone.NUMBER, pickedContact.phone)
+                .withValue(Phone.TYPE, Phone.TYPE_MOBILE)
+                .build()
+        )
         lifecycleScope.launch(Dispatchers.IO) {
-            val cursor = contentResolver.query(
-                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                null,
-                null,
-                null,
-                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC"
-            )
-            val contacts = cursor?.let {
-                try {
-                    val list = mutableListOf<Contact>()
-                    val nameIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
-                    val phoneIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)
-                    while (cursor.moveToNext()) {
-                        val name = cursor.getString(nameIndex)
-                        val phone = cursor.getString(phoneIndex)
-                        if (name != null && phone != null) {
-                            list.add(Contact(name, phone))
+            try {
+                contentResolver.applyBatch(ContactsContract.AUTHORITY, operations)
+            } catch (e: Exception) {
+                Toast.makeText(this@MainActivity, "Error adding contact", Toast.LENGTH_SHORT).show()
+            }
+        }.invokeOnCompletion { loadContacts() }
+
+    }
+
+    private fun loadContacts(){
+        lifecycleScope.launch {
+            binding.apply {
+                progressCPI.visibility = View.VISIBLE
+            }
+            val contacts = withContext(Dispatchers.IO) {
+                val cursor = contentResolver.query(
+                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    null,
+                    null,
+                    null,
+                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC"
+                )
+                val result = cursor?.let {
+                    try {
+                        val list = mutableListOf<Contact>()
+                        val nameIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                        val phoneIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                        while (cursor.moveToNext()) {
+                            val name = cursor.getString(nameIndex)
+                            val phone = cursor.getString(phoneIndex)
+                            if (name != null && phone != null) {
+                                list.add(Contact(name, phone))
+                            }
                         }
+                        list
+                    } catch (e: Exception) {
+                        emptyList()
                     }
-                    list
-                } catch (e: Exception) {
-                    emptyList()
-                }
-            } ?: emptyList()
-            cursor?.close()
-            withContext(Dispatchers.Main.immediate) {
-                contactsAdapter.submitList(contacts)
-                binding.apply {
-                    listRV.visibility = View.VISIBLE
-                    progressCPI.visibility = View.GONE
-                }
+                } ?: emptyList()
+                cursor?.close()
+                result
+            }
+            contactsAdapter.submitList(contacts)
+            binding.apply {
+                listRV.visibility = View.VISIBLE
+                progressCPI.visibility = View.GONE
             }
         }
     }
 
-    fun makePhoneCall() {
-        val intent = Intent(Intent.ACTION_CALL)
-        intent.data = Uri.parse("tel:${pickedContact.phone}")
-        startActivity(intent)
+    override fun onCreateOptionsMenu(menu: Menu?): Boolean {
+        menuInflater.inflate(R.menu.menu_main, menu)
+        return true
     }
 
-    fun sendMessage() {
-        val intent = Intent(this, MessageActivity::class.java).apply {
-            putExtra(MessageActivity.KEY_PHONE, pickedContact.phone)
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        when(item.itemId) {
+            R.id.menu_exit -> {
+                moveTaskToBack(true)
+                finish()
+                return true
+            }
+            R.id.menu_search -> {
+                val intent = Intent(this, SearchActivity::class.java)
+                startActivity(intent)
+                return true
+            }
+            else -> return super.onOptionsItemSelected(item)
         }
-        startActivity(intent)
-    }
-
-    fun isPermissionGranted(permission: String): Boolean {
-        return ActivityCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
     }
 }
 
-data class Contact(val name: String, val phone: String)
-class ContactsAdapter(private val actions: ContactActions) :
-    ListAdapter<Contact, ContactsAdapter.ContactViewHolder>(Callback()) {
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ContactViewHolder {
-        val binding = ListItemBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        return ContactViewHolder(binding, actions)
-    }
-
-    override fun onBindViewHolder(holder: ContactViewHolder, position: Int) {
-        holder.bind(getItem(position))
-    }
-
-    interface ContactActions {
-        fun call(contact: Contact)
-        fun sms(contact: Contact)
-    }
-
-    class ContactViewHolder(
-        private val binding: ListItemBinding,
-        private val actions: ContactActions
-    ) : ViewHolder(binding.root) {
-        private lateinit var contact: Contact
-
-        init {
-            binding.apply {
-                callIV.setOnClickListener {
-                    actions.call(contact)
-                }
-                messageIV.setOnClickListener {
-                    actions.sms(contact)
-                }
-            }
-        }
-
-        fun bind(contact: Contact) {
-            this.contact = contact
-            binding.apply {
-                nameTV.text = contact.name
-                phoneTV.text = contact.phone
-            }
-        }
-    }
-
-    class Callback() : DiffUtil.ItemCallback<Contact>() {
-        override fun areItemsTheSame(oldItem: Contact, newItem: Contact): Boolean {
-            return oldItem.phone == newItem.phone
-        }
-
-        override fun areContentsTheSame(oldItem: Contact, newItem: Contact): Boolean {
-            return oldItem == newItem
-        }
-    }
-}
