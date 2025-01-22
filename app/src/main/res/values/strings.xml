@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">ContentProvider</string>
+    <string name="contacts">Contacts</string>
+    <string name="send_message">Send message</string>
+    <string name="enter_message">Enter message</string>
+    <string name="send">Send</string>
+    <string name="error">Error</string>
+</resources>
